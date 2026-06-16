@@ -1,19 +1,13 @@
 import logging
-from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from models.article import Article
 from schemas.article import ArticleCreate, ArticleRead, ArticleUpdate
-from settings.db import get_db
+from services.articles import ArticleService, get_article_service
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/articles", tags=["Articles"])
-
-SessionDepend = Annotated[AsyncSession, Depends(get_db)]
 
 
 @router.get(
@@ -21,10 +15,9 @@ SessionDepend = Annotated[AsyncSession, Depends(get_db)]
     response_model=list[ArticleRead],
     tags=["Articles"],
 )
-async def get_articles(session: SessionDepend):
+async def get_articles(article_service: ArticleService = Depends(get_article_service)):
     try:
-        result = await session.execute(select(Article))
-        return result.scalars().all()
+        return await article_service.get_all()
     except HTTPException:
         raise
     except Exception as exc:
@@ -40,22 +33,20 @@ async def get_articles(session: SessionDepend):
     response_model=ArticleRead,
     tags=["Articles"],
 )
-async def get_article(article_id: int, session: SessionDepend):
+async def get_article(
+    article_id: int, article_service: ArticleService = Depends(get_article_service)
+):
     try:
-        result = await session.execute(select(Article).where(Article.id == article_id))
-        article = result.scalars().first()
-
+        article = await article_service.get_by_id(article_id=article_id)
         if not article:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Article not found"
             )
-
         return article
-
     except HTTPException:
         raise
     except Exception as exc:
-        logger.exception(msg="Failed to get article with id %d", args=article_id)
+        logger.exception("Failed to get article with id %d", article_id)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to get article",
@@ -68,14 +59,12 @@ async def get_article(article_id: int, session: SessionDepend):
     status_code=status.HTTP_201_CREATED,
     tags=["Articles"],
 )
-async def create_article(article_data: ArticleCreate, session: SessionDepend):
+async def create_article(
+    article_data: ArticleCreate,
+    article_service: ArticleService = Depends(get_article_service),
+):
     try:
-        new_article = Article(**article_data.model_dump())
-        session.add(new_article)
-        await session.commit()
-        await session.refresh(new_article)
-        return new_article
-
+        return await article_service.create(data=article_data)
     except HTTPException:
         raise
     except Exception as exc:
@@ -94,29 +83,21 @@ async def create_article(article_data: ArticleCreate, session: SessionDepend):
 async def update_article(
     article_id: int,
     article_update: ArticleUpdate,
-    session: SessionDepend,
+    article_service: ArticleService = Depends(get_article_service),
 ):
     try:
-        result = await session.execute(select(Article).where(Article.id == article_id))
-        existing_article = result.scalars().first()
-
-        if not existing_article:
+        article = await article_service.update(
+            article_id=article_id, data=article_update
+        )
+        if not article:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Article not found"
             )
-
-        for field, value in article_update.model_dump(exclude_unset=True).items():
-            setattr(existing_article, field, value)
-
-        session.add(existing_article)
-        await session.commit()
-        await session.refresh(existing_article)
-        return existing_article
-
+        return article
     except HTTPException:
         raise
     except Exception as exc:
-        logger.exception(msg="Failed to update article with id %d", args=article_id)
+        logger.exception("Failed to update article with id %s", article_id)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to update article",
@@ -128,24 +109,20 @@ async def update_article(
     status_code=status.HTTP_204_NO_CONTENT,
     tags=["Articles"],
 )
-async def delete_article(article_id: int, session: SessionDepend):
+async def delete_article(
+    article_id: int, article_service: ArticleService = Depends(get_article_service)
+):
     try:
-        result = await session.execute(select(Article).where(Article.id == article_id))
-        existing_article = result.scalars().first()
-
-        if not existing_article:
+        deleted = await article_service.delete(article_id=article_id)
+        if not deleted:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Article not found"
             )
-
-        await session.delete(existing_article)
-        await session.commit()
         return None
-
     except HTTPException:
         raise
     except Exception as exc:
-        logger.exception(msg="Failed to delete article with id %d", args=article_id)
+        logger.exception("Failed to delete article with id %s", article_id)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to delete article",

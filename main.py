@@ -6,18 +6,7 @@ from models import Base
 from routers.articles import router as articles_router
 from settings.db import engine, ping
 
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    # Створюємо таблиці при запуску
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    yield
-    # Закриваємо з'єднання при вимкненні
-    await engine.dispose()
-
-
-app = FastAPI(lifespan=lifespan)
+app = FastAPI()
 
 
 @app.get("/")
