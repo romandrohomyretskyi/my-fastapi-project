@@ -1,11 +1,17 @@
 import logging
 
+from authx import RequestToken
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import FileResponse
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from models.user import User
 from schemas.article import ArticleCreate, ArticleRead, ArticleUpdate
 from services.articles import ArticleService, get_article_service
 from services.pdf_generator import generate_simple_report
+from settings.db import get_db
+from utils.security import security
 
 logger = logging.getLogger(__name__)
 
@@ -39,27 +45,21 @@ async def get_articles_report(
     article_service: ArticleService = Depends(get_article_service),
 ):
     try:
-        # 1. Отримуємо всі статті з бази даних
         articles = await article_service.get_all()
-
-        # 2. Формуємо рядки для PDF
         content_lines = []
         for article in articles:
-            # Використовуємо латиницю, щоб уникнути проблем зі шрифтами
             line = f"ID: {article.id} | Title: {article.title} | Author ID: {article.author_id}"
             content_lines.append(line)
 
         if not content_lines:
             content_lines.append("No articles found in the database.")
 
-        # 3. Генеруємо PDF файл
         filepath = generate_simple_report(
             filename="articles_report.pdf",
             report_title="Database Report: Articles",
             content_lines=content_lines,
         )
 
-        # 4. Повертаємо файл клієнту
         return FileResponse(
             path=filepath, filename="articles_report.pdf", media_type="application/pdf"
         )
@@ -105,6 +105,7 @@ async def get_article(
 async def create_article(
     article_data: ArticleCreate,
     article_service: ArticleService = Depends(get_article_service),
+    token: RequestToken = Depends(security.access_token_required),
 ):
     try:
         return await article_service.create(data=article_data)
@@ -153,8 +154,20 @@ async def update_article(
     tags=["Articles"],
 )
 async def delete_article(
-    article_id: int, article_service: ArticleService = Depends(get_article_service)
+    article_id: int,
+    article_service: ArticleService = Depends(get_article_service),
+    token: RequestToken = Depends(security.access_token_required),
+    session: AsyncSession = Depends(get_db),
 ):
+    result = await session.execute(select(User).where(User.id == int(token.sub)))
+    user = result.scalars().first()
+
+    if not user or user.role != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not enough permissions. Admins only.",
+        )
+
     try:
         deleted = await article_service.delete(article_id=article_id)
         if not deleted:
