@@ -4,6 +4,7 @@ from fastapi import FastAPI, HTTPException, status
 
 from models import Base
 from routers.articles import router as articles_router
+from routers.files import router as files_router
 from settings.db import engine, ping
 
 app = FastAPI()
@@ -26,3 +27,4 @@ async def db_healthcheck():
 
 
 app.include_router(articles_router)
+app.include_router(files_router)

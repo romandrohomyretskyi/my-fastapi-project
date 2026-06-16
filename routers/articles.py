@@ -1,9 +1,11 @@
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import FileResponse
 
 from schemas.article import ArticleCreate, ArticleRead, ArticleUpdate
 from services.articles import ArticleService, get_article_service
+from services.pdf_generator import generate_simple_report
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +27,47 @@ async def get_articles(article_service: ArticleService = Depends(get_article_ser
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to get articles",
+        ) from exc
+
+
+@router.get(
+    path="/report/pdf",
+    summary="Download PDF report of all articles",
+    tags=["Articles"],
+)
+async def get_articles_report(
+    article_service: ArticleService = Depends(get_article_service),
+):
+    try:
+        # 1. Отримуємо всі статті з бази даних
+        articles = await article_service.get_all()
+
+        # 2. Формуємо рядки для PDF
+        content_lines = []
+        for article in articles:
+            # Використовуємо латиницю, щоб уникнути проблем зі шрифтами
+            line = f"ID: {article.id} | Title: {article.title} | Author ID: {article.author_id}"
+            content_lines.append(line)
+
+        if not content_lines:
+            content_lines.append("No articles found in the database.")
+
+        # 3. Генеруємо PDF файл
+        filepath = generate_simple_report(
+            filename="articles_report.pdf",
+            report_title="Database Report: Articles",
+            content_lines=content_lines,
+        )
+
+        # 4. Повертаємо файл клієнту
+        return FileResponse(
+            path=filepath, filename="articles_report.pdf", media_type="application/pdf"
+        )
+    except Exception as exc:
+        logger.exception("Failed to generate PDF report")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to generate report",
         ) from exc
 
 
