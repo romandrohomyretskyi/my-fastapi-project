@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, status
 
 from models import Base
+from routers.articles import router as articles_router
 from settings.db import engine, ping
 
 
@@ -33,3 +34,6 @@ async def db_healthcheck():
             detail="Database connection failed",
         )
     return {"status": "healthy", "database": "connected"}
+
+
+app.include_router(articles_router)
